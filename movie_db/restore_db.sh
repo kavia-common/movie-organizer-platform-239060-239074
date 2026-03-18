@@ -1,12 +1,15 @@
 #!/bin/bash
+set -euo pipefail
 
 # Universal Database Restore Script
 # Automatically detects backup type and restores to running database
 
-DB_NAME="myapp"
-DB_USER="appuser"
-DB_PASSWORD="dbuser123"
-DB_PORT="5000"
+# Credentials must come from env; provide safe-ish defaults for local dev only.
+# NOTE: Do not commit real secrets. Prefer setting these via container runtime env/.env.
+DB_NAME="${DB_NAME:-myapp}"
+DB_USER="${DB_USER:-appuser}"
+DB_PASSWORD="${DB_PASSWORD:-}"
+DB_PORT="${DB_PORT:-5000}"
 
 # SQLite restore
 if [ -f "database_backup.db" ]; then
@@ -22,11 +25,11 @@ if [ -f "database_backup.sql" ]; then
     PG_VERSION=$(ls /usr/lib/postgresql/ 2>/dev/null | head -1)
     if [ -n "$PG_VERSION" ]; then
         PG_BIN="/usr/lib/postgresql/${PG_VERSION}/bin"
-        if sudo -u postgres ${PG_BIN}/pg_isready -p ${DB_PORT} > /dev/null 2>&1; then
+        if sudo -u postgres "${PG_BIN}/pg_isready" -p "${DB_PORT}" > /dev/null 2>&1; then
             echo "Restoring PostgreSQL database from backup..."
             # Use postgres database to run CREATE DATABASE commands
-            PGPASSWORD="${DB_PASSWORD}" ${PG_BIN}/psql \
-                -h localhost -p ${DB_PORT} -U ${DB_USER} -d postgres \
+            PGPASSWORD="${DB_PASSWORD}" "${PG_BIN}/psql" \
+                -h localhost -p "${DB_PORT}" -U "${DB_USER}" -d postgres \
                 < database_backup.sql 2>/dev/null
             echo "✓ Database restored successfully"
             exit 0

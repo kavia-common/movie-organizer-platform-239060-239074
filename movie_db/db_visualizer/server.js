@@ -25,6 +25,20 @@ app.use((req, res, next) => {
 });
 app.use(express.static(path.join(__dirname, 'public')));
 
+function isSafeSqlIdentifier(value) {
+  // Very small and portable allowlist:
+  // - letters, digits, underscore
+  // - must start with letter/underscore
+  // This intentionally forbids schema-qualified names and quoting to reduce injection surface.
+  return typeof value === 'string' && /^[A-Za-z_][A-Za-z0-9_]*$/.test(value);
+}
+
+function parseLimit(value, defaultLimit = 50, maxLimit = 200) {
+  const n = Number.parseInt(String(value ?? ''), 10);
+  if (Number.isNaN(n) || n <= 0) return defaultLimit;
+  return Math.min(n, maxLimit);
+}
+
 // Load environment variables from .env files
 function loadEnvFiles() {
   const envFiles = ['postgres', 'mysql', 'sqlite', 'mongodb'];
@@ -66,23 +80,65 @@ function loadEnvFiles() {
 
 const env = loadEnvFiles();
 
+/**
+ * Parse a database URL into connection parts.
+ * Supports standard URL forms like:
+ * - postgresql://user:pass@host:5432/dbname
+ * - mysql://user:pass@host:3306/dbname
+ *
+ * Returns null if urlString is falsy or invalid.
+ */
+function parseDbUrl(urlString) {
+  if (!urlString) return null;
+  try {
+    const u = new URL(urlString);
+    // pathname includes leading '/', so strip it.
+    const database = u.pathname ? u.pathname.replace(/^\//, '') : '';
+    return {
+      host: u.hostname || undefined,
+      port: u.port ? Number(u.port) : undefined,
+      user: u.username ? decodeURIComponent(u.username) : undefined,
+      password: u.password ? decodeURIComponent(u.password) : undefined,
+      database: database || undefined
+    };
+  } catch (e) {
+    return null;
+  }
+}
+
+function toNumberOrUndefined(value) {
+  if (value === undefined || value === null || value === '') return undefined;
+  const n = Number(value);
+  return Number.isFinite(n) ? n : undefined;
+}
+
 // Database configuration builder
 const dbConfigBuilders = {
-  postgres: (env) => env.POSTGRES_URL ? {
-    host: 'localhost',
-    port: env.POSTGRES_PORT || 5432,
-    user: env.POSTGRES_USER || 'postgres',
-    password: env.POSTGRES_PASSWORD || '',
-    database: env.POSTGRES_DB || 'postgres'
-  } : null,
+  postgres: (env) => {
+    if (!env.POSTGRES_URL && !env.POSTGRES_HOST && !env.POSTGRES_DB) return null;
+
+    const fromUrl = parseDbUrl(env.POSTGRES_URL);
+    return {
+      host: env.POSTGRES_HOST || fromUrl?.host || 'localhost',
+      port: toNumberOrUndefined(env.POSTGRES_PORT) || fromUrl?.port || 5432,
+      user: env.POSTGRES_USER || fromUrl?.user || 'postgres',
+      password: env.POSTGRES_PASSWORD || fromUrl?.password || '',
+      database: env.POSTGRES_DB || fromUrl?.database || 'postgres'
+    };
+  },
   
-  mysql: (env) => env.MYSQL_URL ? {
-    host: 'localhost',
-    port: env.MYSQL_PORT || 3306,
-    user: env.MYSQL_USER || 'root',
-    password: env.MYSQL_PASSWORD || '',
-    database: env.MYSQL_DB || 'mysql'
-  } : null,
+  mysql: (env) => {
+    if (!env.MYSQL_URL && !env.MYSQL_HOST && !env.MYSQL_DB) return null;
+
+    const fromUrl = parseDbUrl(env.MYSQL_URL);
+    return {
+      host: env.MYSQL_HOST || fromUrl?.host || 'localhost',
+      port: toNumberOrUndefined(env.MYSQL_PORT) || fromUrl?.port || 3306,
+      user: env.MYSQL_USER || fromUrl?.user || 'root',
+      password: env.MYSQL_PASSWORD || fromUrl?.password || '',
+      database: env.MYSQL_DB || fromUrl?.database || 'mysql'
+    };
+  },
   
   sqlite: (env) => env.SQLITE_DB ? { path: env.SQLITE_DB } : null,
   
@@ -321,8 +377,12 @@ app.get('/api/:db/tables', (req, res) =>
 
 app.get('/api/:db/tables/:table/data', (req, res) => 
   handleApiRequest(req, res, adapter => {
-    const limit = parseInt(req.query.limit) || 50;
-    return adapter.getData(req.params.table, limit);
+    const limit = parseLimit(req.query.limit, 50, 200);
+    const table = req.params.table;
+    if (!isSafeSqlIdentifier(table)) {
+      throw new Error('Invalid table name');
+    }
+    return adapter.getData(table, limit);
   })
 );
 

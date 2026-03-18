@@ -3,6 +3,9 @@
   "version": "1.0.0",
   "description": "Simple database viewer for PostgreSQL, MySQL, SQLite, and MongoDB",
   "main": "server.js",
+  "overrides": {
+    "tar": "^7.5.11"
+  },
   "scripts": {
     "start": "node server.js --host 0.0.0.0",
     "dev": "nodemon server.js"

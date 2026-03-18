@@ -1,12 +1,15 @@
 #!/bin/bash
+set -euo pipefail
 
 # Universal Database Backup Script
 # Automatically detects and backs up the running database
 
-DB_NAME="myapp"
-DB_USER="appuser"
-DB_PASSWORD="dbuser123"
-DB_PORT="5000"
+# Credentials must come from env; provide safe-ish defaults for local dev only.
+# NOTE: Do not commit real secrets. Prefer setting these via container runtime env/.env.
+DB_NAME="${DB_NAME:-myapp}"
+DB_USER="${DB_USER:-appuser}"
+DB_PASSWORD="${DB_PASSWORD:-}"
+DB_PORT="${DB_PORT:-5000}"
 
 # SQLite check and backup
 if [ -f "${DB_NAME}" ]; then
@@ -20,10 +23,10 @@ fi
 PG_VERSION=$(ls /usr/lib/postgresql/ 2>/dev/null | head -1)
 if [ -n "$PG_VERSION" ]; then
     PG_BIN="/usr/lib/postgresql/${PG_VERSION}/bin"
-    if sudo -u postgres ${PG_BIN}/pg_isready -p ${DB_PORT} > /dev/null 2>&1; then
+    if sudo -u postgres "${PG_BIN}/pg_isready" -p "${DB_PORT}" > /dev/null 2>&1; then
         echo "Backing up PostgreSQL database..."
-        PGPASSWORD="${DB_PASSWORD}" ${PG_BIN}/pg_dump \
-            -h localhost -p ${DB_PORT} -U ${DB_USER} -d ${DB_NAME} \
+        PGPASSWORD="${DB_PASSWORD}" "${PG_BIN}/pg_dump" \
+            -h localhost -p "${DB_PORT}" -U "${DB_USER}" -d "${DB_NAME}" \
             --clean --if-exists --create > database_backup.sql
         echo "✓ Backup saved to database_backup.sql"
         exit 0
